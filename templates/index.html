@@ -1,1 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice LLM Interface</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .chat-container {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        .message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .user-message {
+            background-color: #e3f2fd;
+            margin-left: 20%;
+        }
+        .ai-message {
+            background-color: #f5f5f5;
+            margin-right: 20%;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        .push-to-talk {
+            width: 120px;
+            height: 120px;
+            border-radius: 60px;
+            background-color: #4CAF50;
+            color: white;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 10px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            margin: 20px auto;
+        }
+        .push-to-talk:active {
+            background-color: #e53935;
+            transform: scale(0.95);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .push-to-talk.recording {
+            background-color: #e53935;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+                box-shadow: 0 4px 8px rgba(229,57,53,0.2);
+            }
+            50% {
+                transform: scale(1.05);
+                box-shadow: 0 8px 16px rgba(229,57,53,0.3);
+            }
+            100% {
+                transform: scale(1);
+                box-shadow: 0 4px 8px rgba(229,57,53,0.2);
+            }
+        }
+        .transcript-container {
+            position: relative;
+            margin-top: 20px;
+        }
+        #transcript {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            min-height: 60px;
+            resize: vertical;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        .manual-send {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        #sendButton {
+            background-color: #2196F3;
+            color: white;
+        }
+        #sendButton:hover {
+            background-color: #1976D2;
+        }
+        .tts-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .tts-toggle {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .voice-select {
+            padding: 5px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .volume-slider {
+            width: 100px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Voice LLM Interface</h1>
+        
+        <div class="chat-container" id="chatContainer">
+            <!-- Messages will be added here -->
+        </div>
 
+        <div class="input-area">
+            <button class="push-to-talk" id="pushToTalk">
+                Hold to Speak
+            </button>
+
+            <div class="transcript-container">
+                <textarea id="transcript" placeholder="Or type your message here..." rows="3"></textarea>
+                <div class="manual-send">
+                    <button id="sendButton">Send Message</button>
+                </div>
+            </div>
+
+            <div class="tts-controls">
+                <div class="tts-toggle">
+                    <input type="checkbox" id="ttsEnabled" checked>
+                    <label for="ttsEnabled">Text-to-Speech</label>
+                </div>
+                <select id="voiceSelect" class="voice-select">
+                    <!-- Voices will be populated here -->
+                </select>
+                <div class="volume-control">
+                    <label for="volume">Volume:</label>
+                    <input type="range" id="volume" class="volume-slider" min="0" max="1" step="0.1" value="1">
+                </div>
+            </div>
+            
+            <div class="status" id="status">Ready to record</div>
+        </div>
+    </div>
+
+    <script>
+        let recognition;
+        let synthesis;
+        let voices = [];
+        const pushToTalk = document.getElementById('pushToTalk');
+        const sendButton = document.getElementById('sendButton');
+        const transcript = document.getElementById('transcript');
+        const status = document.getElementById('status');
+        const chatContainer = document.getElementById('chatContainer');
+        const ttsEnabled = document.getElementById('ttsEnabled');
+        const voiceSelect = document.getElementById('voiceSelect');
+        const volumeSlider = document.getElementById('volume');
+        let isRecording = false;
+
+        // Initialize speech recognition
+        function initializeSpeechRecognition() {
+            recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+
+            recognition.onstart = () => {
+                status.textContent = 'Listening...';
+                pushToTalk.classList.add('recording');
+            };
+
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                let finalTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const result = event.results[i];
+                    if (result.isFinal) {
+                        finalTranscript += result[0].transcript;
+                    } else {
+                        interimTranscript += result[0].transcript;
+                    }
+                }
+
+                transcript.value = finalTranscript || interimTranscript;
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                status.textContent = `Error: ${event.error}`;
+                stopRecording();
+            };
+
+            recognition.onend = () => {
+                if (isRecording) {
+                    recognition.start();
+                } else {
+                    status.textContent = 'Ready to record';
+                    pushToTalk.classList.remove('recording');
+                    if (transcript.value.trim()) {
+                        sendMessage(transcript.value);
+                    }
+                }
+            };
+        }
+
+        function startRecording() {
+            isRecording = true;
+            transcript.value = '';
+            recognition.start();
+        }
+
+        function stopRecording() {
+            isRecording = false;
+            recognition.stop();
+        }
+
+        // Initialize speech synthesis
+        function initializeSpeechSynthesis() {
+            synthesis = window.speechSynthesis;
+            
+            // Load available voices
+            function loadVoices() {
+                voices = synthesis.getVoices();
+                voiceSelect.innerHTML = '';
+                
+                voices.forEach((voice, index) => {
+                    const option = document.createElement('option');
+                    option.value = index;
+                    option.textContent = `${voice.name} (${voice.lang})`;
+                    voiceSelect.appendChild(option);
+                });
+            }
+
+            // Chrome loads voices asynchronously
+            if (speechSynthesis.onvoiceschanged !== undefined) {
+                speechSynthesis.onvoiceschanged = loadVoices;
+            }
+            loadVoices();
+        }
+
+        // Speak text using selected voice
+        function speakText(text) {
+            if (!ttsEnabled.checked) return;
+            
+            // Cancel any ongoing speech
+            synthesis.cancel();
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            const selectedVoice = voices[voiceSelect.value];
+            if (selectedVoice) {
+                utterance.voice = selectedVoice;
+            }
+            utterance.volume = volumeSlider.value;
+            synthesis.speak(utterance);
+        }
+
+        function addMessage(text, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user-message' : 'ai-message'}`;
+            messageDiv.textContent = text;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        async function sendMessage(text) {
+            if (!text.trim()) return;
+
+            addMessage(text, true);
+            status.textContent = 'Getting response...';
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ message: text }),
+                });
+
+                const data = await response.json();
+                addMessage(data.response);
+                speakText(data.response);
+            } catch (error) {
+                console.error('Error:', error);
+                status.textContent = 'Error getting response';
+            }
+
+            status.textContent = 'Ready to record';
+            transcript.value = '';
+        }
+
+        // Event listeners
+        pushToTalk.addEventListener('mousedown', startRecording);
+        pushToTalk.addEventListener('mouseup', stopRecording);
+        pushToTalk.addEventListener('mouseleave', stopRecording);
+
+        // Touch events for mobile devices
+        pushToTalk.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            startRecording();
+        });
+        pushToTalk.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            stopRecording();
+        });
+
+        sendButton.addEventListener('click', () => {
+            if (transcript.value.trim()) {
+                sendMessage(transcript.value);
+            }
+        });
+
+        // Handle Enter key in textarea
+        transcript.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (transcript.value.trim()) {
+                    sendMessage(transcript.value);
+                }
+            }
+        });
+
+        // Stop speaking when TTS is disabled
+        ttsEnabled.addEventListener('change', () => {
+            if (!ttsEnabled.checked) {
+                synthesis.cancel();
+            }
+        });
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeSpeechRecognition();
+            initializeSpeechSynthesis();
+        });
+    </script>
+</body>
+</html>
